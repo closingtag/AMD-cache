@@ -13,92 +13,143 @@
 
 (function () {
 
-var progIds = ['Msxml2.XMLHTTP', 'Microsoft.XMLHTTP', 'Msxml2.XMLHTTP.4.0'],
-    hasLocalStorage = (function(){
-      var supported = false;
-      try{
-        supported = window && ("localStorage" in window) && ("getItem" in localStorage);
-      }catch(e){}
-      return supported;
-    })();
+	define(function () {
 
-define(function () {
+		var cache = {
 
-  var cache = {
+		  	defaultCache: '7d',
 
-    createXhr: function () {
-      //Would love to dump the ActiveX crap in here. Need IE 6 to die first.
-      var xhr, i, progId;
-      if (typeof XMLHttpRequest !== "undefined") {
-        return new XMLHttpRequest();
-      } else {
-        for (i = 0; i < 3; i++) {
-          progId = progIds[i];
-          try {
-            xhr = new ActiveXObject(progId);
-          } catch (e) {}
+		  	multiplier: {
+		  		d: 86400000,
+		  		h: 3600000,
+		  		m: 60000,
+		  		s: 1000
+		  	},
 
-          if (xhr) {
-            progIds = [progId];  // so faster next time
-            break;
-          }
-        }
-      }
+		  	storage: (function() {
 
-      if (!xhr) {
-        throw new Error("createXhr(): XMLHttpRequest not available");
-      }
+		  		var storage, fail, uid;
 
-      return xhr;
-    },
+		  		try {
 
-    get: function (url, callback) {
-      var xhr = cache.createXhr();
-      xhr.open('GET', url, true);
-      xhr.onreadystatechange = function (evt) {
-        //Do not explicitly handle errors, those should be
-        //visible via console output in the browser.
-        if (xhr.readyState === 4) {
-          callback(xhr.responseText);
-        }
-      };
-      xhr.send(null);
-    },
+		  			uid = new Date;
+		  			(storage = window.localStorage).setItem(uid, uid);
+		  			fail = storage.getItem(uid) != uid;
+		  			storage.removeItem(uid);
+		  			fail && (storage = false);
 
-    load: function (name, req, load, config) {
-      var cached, url = req.toUrl(name); // TODO: prepend location.pathname?
+				} catch (e) {}
 
-      if (hasLocalStorage) { // in build context, this will be false, too
-        cached = localStorage.getItem(url);
-        if (cached !== null) {
-          load.fromText(name, cached);
-        } else {
-          cache.get(url, function (content) {
-            content += '\n //@ sourceURL='+name;
-            load.fromText(name, content);
+				return storage;
 
-            // can't just fall through here, as we
-            // will already have returned at this time.
-            req([name], function (content) {
-              load(content);
-            });
+			}()),
 
-            try { // need to wrap this to catch potential QUOTA_EXCEEDED
-              localStorage.setItem(url, content);
-            } catch(e) {}
-          });
-          // need to return here to prevent a second
-          // request being sent over the network.
-          return;
-        }
-      }
-      req([name], function (content) {
-        load(content);
-      });
-    }
-  };
+			get: function (url, callback) {
 
-  return cache;
-});
+				var xhr = new XMLHttpRequest();
+
+				xhr.open('GET', url, true);
+
+				xhr.onreadystatechange = function (evt) {
+					if ( xhr.readyState === 4 ) {
+
+						if ( ( xhr.status === 200 ) || ( ( xhr.status === 0 ) && xhr.responseText ) ) {
+
+							if ( callback && typeof callback === 'function' ) {
+
+								callback(xhr.responseText);
+							}
+
+						} else {
+
+							console.log('Could not load file ' + src);
+						}
+					}
+				};
+				xhr.send(null);
+			},
+
+			validate: function(saved, timeframe) {
+				var now = new Date().getTime();
+				var matcher = timeframe.match(/^(\d+)([dhms]{1})$/);
+
+				if (matcher) {
+
+					timeframe = +matcher[1] * this.multiplier[matcher[2]];
+
+					return (saved + timeframe) >= now;
+				}
+				else {
+					return false;
+				}
+
+				return false;
+			},
+
+			load: function (name, req, load, config) {
+
+				var url, timeToLive;
+				var cached = {};
+
+				if ( ~name.indexOf(':') ) {
+					timeToLive = name.split(':')[0];
+					name = name.split(':')[1];
+				}
+				else {
+					timeToLive = this.defaultCache;
+				}
+
+				url = req.toUrl(name);
+
+				var xhrCallback = function(content) {
+
+					cached = {
+						savedOn: new Date().getTime(),
+						content: content,
+						url: url
+					};
+
+					load.fromText(name, content);
+
+					req([name], function (content) {
+						load(content);
+					});
+
+					try {
+						localStorage.setItem(name, JSON.stringify(cached));
+					}
+					catch (e) {}
+				};
+
+				if ( this.storage ) {
+
+					cached = JSON.parse(this.storage.getItem(name));
+
+					if ( cached ) {
+
+						if ( this.validate(cached.savedOn, timeToLive) ) {
+
+							load.fromText(name, cached.content);
+						}
+						else {
+
+							this.get(url, xhrCallback);
+							return;
+						}
+					}
+					else {
+						this.get(url, xhrCallback);
+						return;
+					}
+
+					req([name], function (content) {
+						load(content);
+					});
+				}
+			}
+		};
+
+		return cache;
+	});
 
 }());

@@ -6,13 +6,13 @@
 			var require = {
 				baseUrl: 'src',
                 paths: {
-                    cache: '../../cache'
+                    cache: '../../cache.uncompressed'
                 }
 			};
 		</script>
-		<script type="text/javascript" src="require.js"></script>	
+		<script type="text/javascript" src="require.js"></script>
 		<script type="text/javascript">
-			require(['cache!tellme/tellme'], function(tellme){
+			require(['cache!11d:tellme/tellme'], function(tellme){
 				tellme();
 			});
 		</script>
